@@ -20,10 +20,16 @@ enum ConversionError: LocalizedError {
 enum Converter {
     /// Converts `input` and writes the result next to it. Returns the output URL.
     static func convert(_ input: URL, to format: Format) async throws -> URL {
-        let output = uniqueOutputURL(for: input, ext: format.ext)
+        let output = uniqueOutputURL(for: input, ext: format.ext, suffix: format.isCompression ? " compressed" : "")
 
         do {
             switch format.backend {
+            case .compressPDF(let maxBytes):
+                try await Task.detached { try PDFCompressor.compress(input, to: output, maxBytes: maxBytes) }.value
+
+            case .compressImage(let maxBytes):
+                try await Task.detached { try ImageCompressor.compress(input, to: output, maxBytes: maxBytes) }.value
+
             case .sips(let target):
                 try await run("/usr/bin/sips", ["-s", "format", target, input.path, "--out", output.path])
 
@@ -45,9 +51,9 @@ enum Converter {
     }
 
     /// `photo.heic` -> `photo.png`, or `photo 2.png` if that already exists, and so on.
-    static func uniqueOutputURL(for input: URL, ext: String) -> URL {
+    static func uniqueOutputURL(for input: URL, ext: String, suffix: String = "") -> URL {
         let dir = input.deletingLastPathComponent()
-        let base = input.deletingPathExtension().lastPathComponent
+        let base = input.deletingPathExtension().lastPathComponent + suffix
         var candidate = dir.appendingPathComponent(base).appendingPathExtension(ext)
         var n = 2
         while FileManager.default.fileExists(atPath: candidate.path) {

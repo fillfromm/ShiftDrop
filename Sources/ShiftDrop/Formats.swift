@@ -37,11 +37,22 @@ struct Format {
         case ffmpeg(args: [String])
         /// macOS built-in `cupsfilter` (plain text -> PDF).
         case cupsfilter
+        /// Shrinks an image to a JPEG of at most `maxBytes` (lowers quality, then resolution).
+        case compressImage(maxBytes: Int)
+        /// Shrinks a PDF below `maxBytes` by re-rendering pages as JPEGs.
+        case compressPDF(maxBytes: Int)
     }
 
     let label: String
     let ext: String
     let backend: Backend
+
+    var isCompression: Bool {
+        switch backend {
+        case .compressImage, .compressPDF: return true
+        default: return false
+        }
+    }
 
     var isAvailable: Bool {
         if case .ffmpeg = backend { return Tools.ffmpeg != nil }
@@ -50,6 +61,27 @@ struct Format {
 }
 
 enum Formats {
+    /// Size targets, shown on the outer ring of the menu (separate from output formats).
+    static func compressions(for category: Category) -> [Format] {
+        switch category {
+        case .image:
+            return [
+                Format(label: "< 200 KB", ext: "jpg", backend: .compressImage(maxBytes: 200_000)),
+                Format(label: "< 500 KB", ext: "jpg", backend: .compressImage(maxBytes: 500_000)),
+                Format(label: "< 1 MB", ext: "jpg", backend: .compressImage(maxBytes: 1_000_000)),
+                Format(label: "< 2 MB", ext: "jpg", backend: .compressImage(maxBytes: 2_000_000)),
+            ]
+        case .pdf:
+            return [
+                Format(label: "< 1 MB", ext: "pdf", backend: .compressPDF(maxBytes: 1_000_000)),
+                Format(label: "< 2 MB", ext: "pdf", backend: .compressPDF(maxBytes: 2_000_000)),
+                Format(label: "< 3 MB", ext: "pdf", backend: .compressPDF(maxBytes: 3_000_000)),
+            ]
+        default:
+            return []
+        }
+    }
+
     static func available(for category: Category) -> [Format] {
         switch category {
         case .image:

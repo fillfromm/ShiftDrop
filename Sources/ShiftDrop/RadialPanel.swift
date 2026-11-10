@@ -12,7 +12,7 @@ final class RadialPanelController {
     private var pollTimer: Timer?
     private var ticksSinceRelease = 0
 
-    private static let size: CGFloat = 320
+    private static let size: CGFloat = 440
 
     init() {
         let frame = NSRect(x: 0, y: 0, width: Self.size, height: Self.size)
@@ -44,7 +44,11 @@ final class RadialPanelController {
         self.category = category
 
         let sameKind = files.filter { Category(url: $0) == category }
-        view.configure(formats: Formats.available(for: category), fileCount: sameKind.count)
+        view.configure(
+            formats: Formats.available(for: category),
+            sizes: Formats.compressions(for: category),
+            fileCount: sameKind.count
+        )
 
         // Center on the cursor, but keep the whole circle on screen.
         let screen = NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.main
@@ -84,19 +88,28 @@ final class RadialPanelController {
 
 // MARK: - Radial view
 
-/// Draws the ring of format "sectors" and acts as a drag destination.
-/// Drop a file on a sector to convert it; release in the center or outside the ring to cancel.
+/// Draws two rings and acts as a drag destination.
+/// Inner ring: output formats (convert). Outer ring: size targets (compress), tinted differently.
+/// Drop a file on a sector to run it; release in the center or outside the rings to cancel.
 final class RadialView: NSView {
     var onDrop: (([URL], Format) -> Void)?
 
+    private struct Hit: Equatable {
+        let isSize: Bool
+        let index: Int
+    }
+
     private var formats: [Format] = []
+    private var sizes: [Format] = []
     private var fileCount = 0
-    private var hover: Int? {
+    private var hover: Hit? {
         didSet { if hover != oldValue { needsDisplay = true } }
     }
 
-    private let outerRadius: CGFloat = 150
-    private let innerRadius: CGFloat = 44
+    private let centerRadius: CGFloat = 44
+    private let formatOuter: CGFloat = 120
+    private let sizeInner: CGFloat = 126
+    private let sizeOuter: CGFloat = 200
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -107,8 +120,9 @@ final class RadialView: NSView {
 
     override var isOpaque: Bool { false }
 
-    func configure(formats: [Format], fileCount: Int) {
+    func configure(formats: [Format], sizes: [Format], fileCount: Int) {
         self.formats = formats
+        self.sizes = sizes
         self.fileCount = fileCount
         self.hover = nil
         needsDisplay = true
@@ -116,45 +130,74 @@ final class RadialView: NSView {
 
     // MARK: Geometry
 
+    private func format(for hit: Hit) -> Format {
+        hit.isSize ? sizes[hit.index] : formats[hit.index]
+    }
+
     /// Sectors are laid out clockwise, starting at 12 o'clock.
-    private func sectorIndex(at point: NSPoint) -> Int? {
-        guard !formats.isEmpty else { return nil }
+    private func hit(at point: NSPoint) -> Hit? {
         let dx = point.x - bounds.midX
         let dy = point.y - bounds.midY
         let distance = hypot(dx, dy)
-        guard distance >= innerRadius, distance <= outerRadius else { return nil }
 
+        let isSize: Bool
+        if distance >= centerRadius, distance <= formatOuter, !formats.isEmpty {
+            isSize = false
+        } else if distance >= sizeInner, distance <= sizeOuter, !sizes.isEmpty {
+            isSize = true
+        } else {
+            return nil
+        }
+
+        let count = isSize ? sizes.count : formats.count
         let angle = atan2(dy, dx) * 180 / .pi            // degrees, counter-clockwise from +x
         var clockwiseFromTop = 90 - angle
         clockwiseFromTop = clockwiseFromTop.truncatingRemainder(dividingBy: 360)
         if clockwiseFromTop < 0 { clockwiseFromTop += 360 }
 
-        let step = 360 / CGFloat(formats.count)
-        return min(Int(clockwiseFromTop / step), formats.count - 1)
+        let step = 360 / CGFloat(count)
+        return Hit(isSize: isSize, index: min(Int(clockwiseFromTop / step), count - 1))
     }
 
     // MARK: Drawing
 
     override func draw(_ dirtyRect: NSRect) {
-        guard !formats.isEmpty else { return }
         let center = NSPoint(x: bounds.midX, y: bounds.midY)
-        let step = 360 / CGFloat(formats.count)
 
-        for (i, format) in formats.enumerated() {
+        drawRing(formats, isSize: false, inner: centerRadius, outer: formatOuter, center: center)
+        drawRing(sizes, isSize: true, inner: sizeInner, outer: sizeOuter, center: center)
+
+        // Center "cancel" disc.
+        let disc = NSBezierPath(ovalIn: NSRect(
+            x: center.x - centerRadius + 5, y: center.y - centerRadius + 5,
+            width: (centerRadius - 5) * 2, height: (centerRadius - 5) * 2
+        ))
+        NSColor(white: 0.10, alpha: 0.88).setFill()
+        disc.fill()
+        drawLabel(fileCount > 1 ? "\(fileCount)×" : "✕", at: center, enabled: true, size: 16)
+    }
+
+    private func drawRing(_ items: [Format], isSize: Bool, inner: CGFloat, outer: CGFloat, center: NSPoint) {
+        guard !items.isEmpty else { return }
+        let step = 360 / CGFloat(items.count)
+
+        for (i, format) in items.enumerated() {
             let start = 90 - CGFloat(i) * step
             let end = start - step
 
             let path = NSBezierPath()
-            path.appendArc(withCenter: center, radius: outerRadius, startAngle: start, endAngle: end, clockwise: true)
-            path.appendArc(withCenter: center, radius: innerRadius, startAngle: end, endAngle: start, clockwise: false)
+            path.appendArc(withCenter: center, radius: outer, startAngle: start, endAngle: end, clockwise: true)
+            path.appendArc(withCenter: center, radius: inner, startAngle: end, endAngle: start, clockwise: false)
             path.close()
 
-            let isHovered = hover == i
+            let isHovered = hover == Hit(isSize: isSize, index: i)
             let fill: NSColor
             if !format.isAvailable {
                 fill = NSColor(white: 0.18, alpha: 0.7)
             } else if isHovered {
-                fill = NSColor.controlAccentColor
+                fill = isSize ? NSColor.systemOrange : NSColor.controlAccentColor
+            } else if isSize {
+                fill = NSColor(calibratedRed: 0.20, green: 0.11, blue: 0.04, alpha: 0.90)   // warm tint
             } else {
                 fill = NSColor(white: 0.10, alpha: 0.88)
             }
@@ -167,22 +210,13 @@ final class RadialView: NSView {
 
             // Label in the middle of the sector.
             let mid = (start - step / 2) * .pi / 180
-            let labelRadius = (outerRadius + innerRadius) / 2
+            let labelRadius = (outer + inner) / 2
             let p = NSPoint(x: center.x + labelRadius * cos(mid), y: center.y + labelRadius * sin(mid))
             drawLabel(format.label, at: p, enabled: format.isAvailable)
             if !format.isAvailable {
                 drawLabel("needs ffmpeg", at: NSPoint(x: p.x, y: p.y - 15), enabled: false, size: 9)
             }
         }
-
-        // Center "cancel" disc.
-        let disc = NSBezierPath(ovalIn: NSRect(
-            x: center.x - innerRadius + 5, y: center.y - innerRadius + 5,
-            width: (innerRadius - 5) * 2, height: (innerRadius - 5) * 2
-        ))
-        NSColor(white: 0.10, alpha: 0.88).setFill()
-        disc.fill()
-        drawLabel(fileCount > 1 ? "\(fileCount)×" : "✕", at: center, enabled: true, size: 16)
     }
 
     private func drawLabel(_ text: String, at point: NSPoint, enabled: Bool, size: CGFloat = 14) {
@@ -211,21 +245,21 @@ final class RadialView: NSView {
 
     private func update(for sender: NSDraggingInfo) -> NSDragOperation {
         let point = convert(sender.draggingLocation, from: nil)
-        let index = sectorIndex(at: point)
-        hover = index
-        guard let index, formats[index].isAvailable else { return [] }
+        let target = hit(at: point)
+        hover = target
+        guard let target, format(for: target).isAvailable else { return [] }
         return .copy
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let point = convert(sender.draggingLocation, from: nil)
-        guard let index = sectorIndex(at: point) else { return false }
-        return formats[index].isAvailable
+        guard let target = hit(at: point) else { return false }
+        return format(for: target).isAvailable
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let point = convert(sender.draggingLocation, from: nil)
-        guard let index = sectorIndex(at: point), formats[index].isAvailable else { return false }
+        guard let target = hit(at: point), format(for: target).isAvailable else { return false }
 
         let urls = sender.draggingPasteboard.readObjects(
             forClasses: [NSURL.self],
@@ -233,7 +267,7 @@ final class RadialView: NSView {
         ) as? [URL] ?? []
 
         guard !urls.isEmpty else { return false }
-        onDrop?(urls, formats[index])
+        onDrop?(urls, format(for: target))
         return true
     }
 }

@@ -15,6 +15,8 @@ The idea is inspired by the app Tangerine. ShiftDrop is written from scratch and
 
 Multiple files of the same kind can be dragged at once.
 
+The menu has two rings: the **inner ring** converts to another format, the **outer ring** (warm tint) compresses to a size limit.
+
 ## Supported conversions
 
 | Input | Output | Engine |
@@ -25,6 +27,15 @@ Multiple files of the same kind can be dragged at once.
 | Audio | MP3, FLAC, OGG | `ffmpeg` (optional) |
 | Video | MP4, WebM, GIF, MP3, M4A | `ffmpeg` (optional) |
 | Plain text | PDF | `cupsfilter` (built into macOS) |
+
+## Compression (outer ring)
+
+| Input | Targets | How |
+|-------|---------|-----|
+| Images | < 200 KB, < 500 KB, < 1 MB, < 2 MB | Finds the highest JPEG quality that fits, then downscales if needed. Output: `name compressed.jpg` |
+| PDF | < 1 MB, < 2 MB, < 3 MB | Re-renders pages as JPEGs. Text in the result is no longer selectable. Output: `name compressed.pdf` |
+
+If the limit can't be reached you get an error instead of a silent result. Files already under the limit are copied unchanged (PDF).
 
 Sectors that need `ffmpeg` are greyed out until you install it: `brew install ffmpeg`.
 

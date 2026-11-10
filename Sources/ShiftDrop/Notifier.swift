@@ -16,9 +16,16 @@ enum Notifier {
 
     static func finish(converted: [URL], errors: [String], format: Format) {
         if !converted.isEmpty {
-            let title = converted.count == 1
-                ? "Converted to \(format.label)"
-                : "Converted \(converted.count) files to \(format.label)"
+            let title: String
+            if format.isCompression {
+                title = converted.count == 1
+                    ? "Compressed to \(format.label)"
+                    : "Compressed \(converted.count) files to \(format.label)"
+            } else {
+                title = converted.count == 1
+                    ? "Converted to \(format.label)"
+                    : "Converted \(converted.count) files to \(format.label)"
+            }
             let body = converted.map(\.lastPathComponent).joined(separator: ", ")
             post(title: title, body: body)
         }
