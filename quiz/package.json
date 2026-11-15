@@ -1,0 +1,8 @@
+{
+  "name": "birthday-quiz",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Викторина для вечеринки: табло, пульт ведущего и кнопки на телефонах",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
+}

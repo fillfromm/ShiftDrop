@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Викторина — ведущий</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  #login { max-width: 340px; margin: 18vh auto 0; display: grid; gap: 12px; padding: 16px; text-align: center; }
+  #login input { font-size: 24px; text-align: center; letter-spacing: .3em; }
+  header { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 5; }
+  header h1 { font-size: 18px; margin-right: auto; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; }
+  .seg button.on { background: var(--accent); }
+  #game { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; padding: 16px; align-items: start; }
+  @media (max-width: 900px) { #game { grid-template-columns: 1fr; } }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+
+  .q-meta { color: var(--accent); font-weight: 800; }
+  .q-text { font-size: 22px; font-weight: 700; margin: 8px 0; overflow-wrap: anywhere; }
+  .q-answer { background: rgba(61, 220, 132, .14); border: 1px dashed var(--good); border-radius: 10px; padding: 8px 12px; margin: 10px 0; overflow-wrap: anywhere; }
+  .q-img { max-height: 160px; max-width: 100%; border-radius: 10px; display: block; }
+  .queue { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
+  .queue li { background: rgba(0, 0, 0, .2); border-radius: 12px; padding: 10px 12px; }
+  .queue li.first { background: var(--card-hi); border: 2px solid var(--good); }
+  .queue li.first .name { font-size: 22px; font-weight: 800; }
+  .queue li.first .row { margin-top: 8px; }
+  .queue li.first button { padding: 12px 16px; font-size: 17px; }
+  .locked { color: var(--bad); }
+
+  .player { display: grid; grid-template-columns: 1fr auto; gap: 6px 8px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .player:last-child { border-bottom: 0; }
+  .player .name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .player .score { color: var(--accent); font-weight: 800; font-size: 20px; }
+  .player .ctl { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+  .player .ctl button { padding: 5px 10px; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--bad); margin-right: 6px; }
+  .dot.on { background: var(--good); }
+  label.check { display: flex; gap: 8px; align-items: center; margin: 8px 0; cursor: pointer; }
+  label.check input { width: auto; }
+
+  #editor { padding: 16px; max-width: 1100px; margin: auto; display: grid; gap: 14px; }
+  .ed-cat { display: grid; gap: 8px; }
+  .ed-q { display: grid; grid-template-columns: 90px minmax(0, 2fr) minmax(0, 1.2fr) auto; gap: 8px; align-items: start; }
+  .ed-q .img { grid-column: 2 / 4; display: flex; gap: 8px; align-items: center; }
+  .ed-q .img img { height: 38px; border-radius: 6px; }
+  @media (max-width: 700px) { .ed-q { grid-template-columns: 70px minmax(0, 1fr) auto; } .ed-q .ans, .ed-q .img { grid-column: 1 / -1; } }
+  #dirty { color: var(--wait); }
+  .savebar { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0; border-top: 1px solid var(--line); }
+</style>
+</head>
+<body>
+
+<form id="login" class="card" hidden>
+  <h2>Вход для ведущего</h2>
+  <input id="pin" inputmode="numeric" placeholder="PIN" autocomplete="off">
+  <button class="primary">Войти</button>
+  <div class="muted" id="loginErr">PIN показан в консоли, где запущен сервер</div>
+</form>
+
+<div id="app" hidden>
+  <header>
+    <h1 id="title"></h1>
+    <span class="seg" id="tabSeg">
+      <button data-tab="game" class="on">Игра</button>
+      <button data-tab="editor">Редактор вопросов</button>
+    </span>
+    <span class="seg" id="viewSeg" title="Что показывает общий экран">
+      <button data-view="lobby">Лобби</button>
+      <button data-view="game">Табло</button>
+      <button data-view="results">Итоги</button>
+    </span>
+    <a href="/screen" target="_blank">Открыть экран ↗</a>
+  </header>
+
+  <div id="game">
+    <section id="stage"></section>
+    <aside>
+      <div class="card">
+        <h3>Игроки</h3>
+        <div id="players"></div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <h3>Настройки</h3>
+        <label class="check"><input type="checkbox" id="setPenalty"> Снимать баллы за неверный ответ</label>
+        <label class="check"><input type="checkbox" id="setAutoArm"> Открывать кнопки сразу с вопросом</label>
+        <div class="muted" style="margin:10px 0 6px">Ссылка для игроков: <b id="joinUrl"></b></div>
+        <div class="row">
+          <button id="resetGame">Новая игра</button>
+          <button id="resetAll" class="ghost">Удалить всех игроков</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div id="editor" hidden></div>
+</div>
+
+<input type="file" id="imgFile" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
+<input type="file" id="packFile" accept="application/json,.json" hidden>
+
+<script src="/common.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let pin = store.get('quiz.pin') || '';
+let S = null;          // последнее состояние с сервера
+let tab = 'game';
+let pack = null;       // рабочая копия набора в редакторе
+let dirty = false;
+let packJson = '';   // набор на сервере в момент открытия редактора
+let edRound = 0;
+let es = null;
+
+const act = (action, data) => api(action, data, pin).catch((e) => alert(e.message));
+
+// ---------- вход ----------
+
+async function start() {
+  const res = await fetch('/api/login', { method: 'POST', body: JSON.stringify({ pin }) });
+  if (!res.ok) {
+    $('login').hidden = false; $('app').hidden = true;
+    if (pin) $('loginErr').textContent = 'Неверный PIN';
+    return;
+  }
+  store.set('quiz.pin', pin);
+  $('login').hidden = true; $('app').hidden = false;
+  if (es) es.close();
+  es = subscribe({ role: 'host', pin }, (s) => { S = s; renderGame(); });
+}
+$('login').addEventListener('submit', (e) => { e.preventDefault(); pin = $('pin').value.trim(); start(); });
+
+// ---------- игра ----------
+
+function renderGame() {
+  const s = S;
+  document.title = s.title + ' — ведущий';
+  $('title').textContent = s.title;
+  for (const b of $('viewSeg').children) b.classList.toggle('on', b.dataset.view === s.view);
+  $('setPenalty').checked = s.settings.penalty;
+  $('setAutoArm').checked = s.settings.autoArm;
+  $('joinUrl').textContent = joinUrl(s);
+  $('stage').innerHTML = s.current ? questionHtml(s) : boardHtml(s);
+  $('players').innerHTML = s.players.length ? s.players.map((p) => `
+    <div class="player" data-id="${p.id}">
+      <span class="name"><span class="dot ${p.online ? 'on' : ''}" title="${p.online ? 'на связи' : 'не на связи'}"></span>${esc(p.name)}</span>
+      <span class="score">${p.score}</span>
+      <span class="ctl">
+        <button data-a="add" data-d="-100">−100</button>
+        <button data-a="add" data-d="100">+100</button>
+        <button data-a="score" title="Задать счёт вручную">Счёт…</button>
+        <button data-a="rename" class="ghost">Имя…</button>
+        <button data-a="kick" class="ghost" title="Удалить игрока">✕</button>
+      </span>
+    </div>`).join('') : '<p class="muted">Пока никто не подключился. Игроки заходят по ссылке ниже или по QR-коду на экране.</p>';
+  if (tab === 'editor' && !dirty && JSON.stringify(s.pack) !== packJson) openEditor();
+}
+
+function boardHtml(s) {
+  const cols = Math.max(1, ...s.board.map((c) => c.questions.length));
+  return `<div class="tabs">${s.rounds.map((r, i) => `<button data-round="${i}" class="${i === s.roundIndex ? 'on' : ''}">${esc(r)}</button>`).join('')}</div>
+  <div class="board" style="--cols:${cols}">${s.board.map((c) => `<div class="cat-row">
+    <div class="cat-name">${esc(c.name)}</div>
+    ${c.questions.map((q) => `<button class="cell ${q.played ? 'played' : ''}" data-open="${q.id}" data-played="${q.played ? 1 : ''}">${q.value}</button>`).join('')}
+    ${'<div></div>'.repeat(cols - c.questions.length)}
+  </div>`).join('') || '<p class="muted">В этом раунде нет категорий. Добавьте их в редакторе вопросов.</p>'}</div>`;
+}
+
+function questionHtml(s) {
+  const c = s.current;
+  const live = c.phase === 'question';
+  const queue = c.queue.map((id, i) => i === 0 && live ? `
+    <li class="first"><div class="name">${esc(playerName(s, id))}</div>
+      <div class="row">
+        <button class="good" data-judge="correct">✓ Верно +${c.value}</button>
+        <button class="bad" data-judge="wrong">✗ Неверно${s.settings.penalty ? ' −' + c.value : ''}</button>
+        <button class="ghost" data-judge="skip">Снять без штрафа</button>
+      </div></li>` : `<li>${i + 1}. ${esc(playerName(s, id))}</li>`).join('');
+  return `<div class="card">
+    <div class="q-meta">${esc(c.category)} · ${c.value}</div>
+    <div class="q-text">${esc(c.text)}</div>
+    ${c.image ? `<img class="q-img" src="${esc(c.image)}" alt="">` : ''}
+    <div class="q-answer"><span class="muted">Ответ${live ? ' (видите только вы)' : ''}:</span> <b>${esc(c.answer)}</b></div>
+    ${live ? `<div class="row">
+        <button data-arm="${c.armed ? '' : 1}" class="${c.armed ? 'on' : ''}">${c.armed ? 'Кнопки открыты — закрыть' : 'Открыть кнопки игрокам'}</button>
+      </div>
+      <ul class="queue">${queue || `<li class="muted">${c.armed ? 'Ждём, кто нажмёт первым…' : 'Кнопки закрыты'}</li>`}</ul>` :
+      `<p>${c.winner ? `Верно ответил(а): <b>${esc(playerName(s, c.winner))}</b>` : 'Ответ показан на экране.'}</p>`}
+    ${c.locked.length ? `<p class="locked">Ответили неверно: ${c.locked.map((id) => esc(playerName(s, id))).join(', ')}</p>` : ''}
+    <div class="row" style="margin-top:12px">
+      ${live ? '<button class="primary" data-q="reveal">Показать ответ на экране</button><button class="ghost" data-q="cancel">Отмена (вернуть на табло)</button>'
+             : '<button class="primary" data-q="close">Вернуться к табло</button>'}
+    </div>
+  </div>`;
+}
+
+$('stage').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const d = b.dataset;
+  if ('round' in d) act('round', { index: +d.round });
+  else if (d.open) {
+    if (!d.played) act('open', { id: d.open });
+    else if (confirm('Вопрос уже сыгран. Вернуть его на табло?')) act('unplay', { id: d.open });
+  }
+  else if (d.judge) act('judge', { result: d.judge });
+  else if ('arm' in d) act('arm', { on: !!d.arm });
+  else if (d.q === 'reveal') act('reveal');
+  else if (d.q === 'close') act('close');
+  else if (d.q === 'cancel') act('close', { cancel: true });
+});
+
+$('players').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const id = b.closest('.player').dataset.id;
+  const p = S.players.find((x) => x.id === id);
+  const a = b.dataset.a;
+  if (a === 'add') act('addScore', { id, delta: +b.dataset.d });
+  else if (a === 'score') {
+    const v = prompt(`Счёт игрока ${p.name}:`, p.score);
+    if (v !== null && v.trim() !== '' && !isNaN(+v)) act('setScore', { id, score: +v });
+  } else if (a === 'rename') {
+    const v = prompt('Новое имя:', p.name);
+    if (v && v.trim()) act('rename', { id, name: v });
+  } else if (a === 'kick' && confirm(`Удалить игрока ${p.name}?`)) act('kick', { id });
+});
+
+$('viewSeg').addEventListener('click', (e) => e.target.dataset.view && act('view', { view: e.target.dataset.view }));
+$('setPenalty').addEventListener('change', (e) => act('settings', { penalty: e.target.checked }));
+$('setAutoArm').addEventListener('change', (e) => act('settings', { autoArm: e.target.checked }));
+$('resetGame').addEventListener('click', () => confirm('Начать заново? Счёт обнулится, все вопросы вернутся на табло.') && act('reset', {}));
+$('resetAll').addEventListener('click', () => confirm('Удалить всех игроков и начать заново?') && act('reset', { players: true }));
+
+$('tabSeg').addEventListener('click', (e) => {
+  const t = e.target.dataset.tab;
+  if (!t) return;
+  tab = t;
+  for (const b of $('tabSeg').children) b.classList.toggle('on', b.dataset.tab === tab);
+  $('game').hidden = tab !== 'game';
+  $('editor').hidden = tab !== 'editor';
+  $('viewSeg').hidden = tab !== 'game';
+  if (tab === 'editor' && !dirty) openEditor();
+});
+
+// ---------- редактор ----------
+
+function openEditor() {
+  if (!S) return;
+  packJson = JSON.stringify(S.pack);
+  pack = JSON.parse(packJson);
+  dirty = false;
+  edRound = Math.min(edRound, pack.rounds.length - 1);
+  renderEditor();
+}
+
+function markDirty() {
+  dirty = true;
+  const d = $('dirty');
+  if (d) d.textContent = 'Есть несохранённые изменения';
+}
+
+function renderEditor() {
+  const r = pack.rounds[edRound];
+  $('editor').innerHTML = `
+    <div class="card row">
+      <label class="grow">Название игры <input data-k="title" value="${esc(pack.title)}" maxlength="80"></label>
+      <button data-e="export">Скачать набор (.json)</button>
+      <button data-e="import">Загрузить набор…</button>
+    </div>
+    <div class="tabs" style="margin:0">
+      ${pack.rounds.map((x, i) => `<button data-e="round" data-i="${i}" class="${i === edRound ? 'on' : ''}">${esc(x.name)}</button>`).join('')}
+      <button data-e="addRound" class="ghost">+ Раунд</button>
+    </div>
+    <div class="card row">
+      <label class="grow">Название раунда <input data-k="round" value="${esc(r.name)}" maxlength="60"></label>
+      <button data-e="delRound" class="ghost" ${pack.rounds.length < 2 ? 'disabled' : ''}>Удалить раунд</button>
+    </div>
+    ${r.categories.map((c, ci) => `<div class="card ed-cat">
+      <div class="row">
+        <input class="grow" data-k="cat" data-c="${ci}" value="${esc(c.name)}" placeholder="Название категории" maxlength="60" style="font-weight:700">
+        <button data-e="delCat" data-c="${ci}" class="ghost">Удалить категорию</button>
+      </div>
+      ${c.questions.map((q, qi) => `<div class="ed-q">
+        <input type="number" data-k="value" data-c="${ci}" data-q="${qi}" value="${q.value}" title="Стоимость">
+        <textarea rows="2" data-k="text" data-c="${ci}" data-q="${qi}" placeholder="Вопрос" maxlength="2000">${esc(q.text)}</textarea>
+        <textarea rows="2" class="ans" data-k="answer" data-c="${ci}" data-q="${qi}" placeholder="Ответ" maxlength="1000">${esc(q.answer)}</textarea>
+        <button data-e="delQ" data-c="${ci}" data-q="${qi}" class="ghost" title="Удалить вопрос">✕</button>
+        <div class="img">
+          ${q.image ? `<img src="${esc(q.image)}" alt="">` : ''}
+          <input data-k="image" data-c="${ci}" data-q="${qi}" value="${esc(q.image)}" placeholder="Картинка: ссылка или загрузите файл →" maxlength="500">
+          <button data-e="upload" data-c="${ci}" data-q="${qi}">Файл…</button>
+        </div>
+      </div>`).join('')}
+      <div><button data-e="addQ" data-c="${ci}">+ Вопрос</button></div>
+    </div>`).join('')}
+    <div><button data-e="addCat">+ Категория</button></div>
+    <div class="savebar row">
+      <button class="primary" data-e="save">Сохранить набор</button>
+      <button data-e="revert" class="ghost">Отменить изменения</button>
+      <span id="dirty">${dirty ? 'Есть несохранённые изменения' : ''}</span>
+    </div>`;
+}
+
+$('editor').addEventListener('input', (e) => {
+  const d = e.target.dataset;
+  if (!d.k) return;
+  const r = pack.rounds[edRound];
+  const v = e.target.value;
+  if (d.k === 'title') pack.title = v;
+  else if (d.k === 'round') r.name = v;
+  else if (d.k === 'cat') r.categories[d.c].name = v;
+  else r.categories[d.c].questions[d.q][d.k] = d.k === 'value' ? +v || 0 : v;
+  markDirty();
+});
+
+let uploadTarget = null;
+
+$('editor').addEventListener('click', async (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const d = b.dataset;
+  const r = pack.rounds[edRound];
+  switch (d.e) {
+    case 'round': edRound = +d.i; break;
+    case 'addRound': pack.rounds.push({ name: `Раунд ${pack.rounds.length + 1}`, categories: [] }); edRound = pack.rounds.length - 1; markDirty(); break;
+    case 'delRound':
+      if (!confirm(`Удалить «${r.name}» со всеми вопросами?`)) return;
+      pack.rounds.splice(edRound, 1); edRound = Math.max(0, edRound - 1); markDirty(); break;
+    case 'addCat': {
+      const values = r.categories[0]?.questions.map((q) => q.value) || [100, 200, 300, 400, 500];
+      r.categories.push({ name: '', questions: values.map((value) => ({ value, text: '', answer: '', image: '' })) });
+      markDirty(); break;
+    }
+    case 'delCat':
+      if (!confirm('Удалить категорию со всеми вопросами?')) return;
+      r.categories.splice(d.c, 1); markDirty(); break;
+    case 'addQ': {
+      const qs = r.categories[d.c].questions;
+      const lastQ = qs.at(-1), prev = qs.at(-2);
+      const step = lastQ && prev ? lastQ.value - prev.value : 100;
+      qs.push({ value: (lastQ?.value || 0) + step, text: '', answer: '', image: '' });
+      markDirty(); break;
+    }
+    case 'delQ': r.categories[d.c].questions.splice(d.q, 1); markDirty(); break;
+    case 'upload': uploadTarget = r.categories[d.c].questions[d.q]; $('imgFile').click(); return;
+    case 'export': {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(pack, null, 2)], { type: 'application/json' }));
+      a.download = (pack.title || 'quiz') + '.json';
+      a.click();
+      return;
+    }
+    case 'import': $('packFile').click(); return;
+    case 'save':
+      if (S.current && !confirm('Сейчас открыт вопрос — он будет закрыт. Сохранить?')) return;
+      dirty = false; // новое состояние с сервера перерисует редактор
+      try { await api('pack', { pack }, pin); } catch (err) { dirty = true; return alert(err.message); }
+      $('dirty').textContent = 'Сохранено';
+      return;
+    case 'revert': if (dirty && !confirm('Отменить все несохранённые изменения?')) return; openEditor(); return;
+    default: return;
+  }
+  renderEditor();
+});
+
+$('imgFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file || !uploadTarget) return;
+  const res = await fetch('/api/upload?pin=' + encodeURIComponent(pin), { method: 'POST', headers: { 'Content-Type': file.type }, body: file });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return alert(body.error || 'Не удалось загрузить');
+  uploadTarget.image = body.url;
+  markDirty();
+  renderEditor();
+});
+
+$('packFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const p = JSON.parse(await file.text());
+    if (!Array.isArray(p.rounds)) throw new Error();
+    pack = p; edRound = 0; markDirty(); renderEditor();
+  } catch { alert('Это не похоже на файл набора вопросов'); }
+});
+
+window.addEventListener('beforeunload', (e) => { if (dirty) e.preventDefault(); });
+
+start();
+</script>
+</body>
+</html>

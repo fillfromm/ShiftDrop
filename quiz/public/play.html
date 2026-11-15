@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1b1030">
+<title>Викторина — кнопка</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  body { overflow: hidden; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  #join { height: 100%; display: flex; flex-direction: column; justify-content: center; gap: 14px; padding: 24px; max-width: 420px; margin: auto; }
+  #join h1 { text-align: center; font-size: 28px; }
+  #join input, #join button { font-size: 20px; padding: 14px; }
+  #err { color: var(--bad); min-height: 1.2em; text-align: center; }
+  #game { height: 100%; display: flex; flex-direction: column; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  #top { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 16px; font-size: 18px; }
+  #me { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #score { color: var(--accent); font-weight: 800; font-size: 22px; }
+  #offline { background: var(--bad); color: #3a0606; text-align: center; padding: 4px; font-size: 14px; }
+  #buzz {
+    flex: 1; margin: 0 12px 12px; border-radius: 28px; border: 0; outline: none; -webkit-tap-highlight-color: transparent;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+    font-weight: 900; font-size: clamp(34px, 12vw, 72px); line-height: 1.05; text-align: center; padding: 16px;
+    background: var(--card); color: var(--muted);
+    transition: background .12s, transform .06s;
+  }
+  #buzz small { font-size: .32em; font-weight: 600; opacity: .85; }
+  #buzz:hover { filter: none; }
+  #buzz.armed { background: var(--hot); color: #fff; box-shadow: inset 0 -12px 0 rgba(0, 0, 0, .22); }
+  #buzz.armed:active { transform: scale(.98); box-shadow: none; }
+  #buzz.answer { background: var(--good); color: #06301a; animation: pulse .7s infinite alternate; }
+  #buzz.queued { background: var(--wait); color: #4a3200; }
+  #buzz.locked { background: #4a2330; color: #e9b3bd; }
+  #buzz.win { background: var(--accent); color: #2a1846; }
+  @keyframes pulse { to { filter: brightness(1.2); } }
+</style>
+</head>
+<body>
+<form id="join" hidden>
+  <h1 id="title">Викторина</h1>
+  <input id="name" placeholder="Твоё имя" maxlength="24" autocomplete="off" enterkeyhint="go">
+  <button class="primary">Войти в игру</button>
+  <div id="err"></div>
+</form>
+
+<div id="game" hidden>
+  <div id="offline" hidden>Нет связи, переподключаюсь…</div>
+  <div id="top"><span id="me"></span><span id="score">0</span></div>
+  <button id="buzz" type="button"></button>
+</div>
+
+<script src="/common.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let token = store.get('quiz.token');
+let myId = store.get('quiz.id');
+let es = null;
+let last = null;
+let lastKind = '';
+
+function connect() {
+  if (es) es.close();
+  es = subscribe({ role: 'player', token: token || '' }, render, (ok) => ($('offline').hidden = ok));
+}
+
+function show(joined) {
+  $('join').hidden = joined;
+  $('game').hidden = !joined;
+}
+
+function render(s) {
+  last = s;
+  $('title').textContent = s.title;
+  const me = s.players.find((p) => p.id === myId);
+  if (!me) return show(false); // ещё не вошли или ведущий удалил игрока
+  show(true);
+  $('me').textContent = me.name;
+  $('score').textContent = me.score;
+
+  const cur = s.current;
+  let kind = 'idle', big = 'Жди вопрос', small = '';
+  if (cur && cur.phase === 'answer') {
+    if (cur.winner === myId) { kind = 'win'; big = 'Верно!'; small = '+' + cur.value; }
+    else { big = 'Вопрос сыгран'; }
+  } else if (cur) {
+    const pos = cur.queue.indexOf(myId);
+    if (cur.locked.includes(myId)) { kind = 'locked'; big = 'Мимо'; small = 'Ты уже отвечал на этот вопрос'; }
+    else if (pos === 0) { kind = 'answer'; big = 'ОТВЕЧАЙ!'; small = 'Ты первый'; }
+    else if (pos > 0) { kind = 'queued'; big = '№ ' + (pos + 1); small = 'Ты в очереди на ответ'; }
+    else if (cur.armed) { kind = 'armed'; big = 'ЖМИ!'; small = cur.category + ' · ' + cur.value; }
+    else { big = 'Приготовься…'; small = 'Кнопка ещё закрыта'; }
+  }
+  const b = $('buzz');
+  b.className = kind;
+  b.innerHTML = esc(big) + (small ? `<small>${esc(small)}</small>` : '');
+  if (kind !== lastKind && (kind === 'answer' || kind === 'win')) navigator.vibrate?.([120, 60, 120]);
+  lastKind = kind;
+}
+
+$('buzz').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  if (!last?.current?.armed) return;
+  navigator.vibrate?.(40);
+  api('buzz', { token }).catch(() => {});
+});
+$('buzz').addEventListener('contextmenu', (e) => e.preventDefault());
+
+$('join').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('err').textContent = '';
+  try {
+    const r = await api('join', { name: $('name').value, token });
+    token = r.token; myId = r.id;
+    store.set('quiz.token', token); store.set('quiz.id', myId);
+    connect();
+  } catch (err) { $('err').textContent = err.message; }
+});
+
+// Не даём экрану гаснуть во время игры
+async function wake() { try { await navigator.wakeLock?.request('screen'); } catch {} }
+document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && wake());
+document.addEventListener('pointerdown', wake, { once: true });
+
+connect();
+</script>
+</body>
+</html>
