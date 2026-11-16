@@ -1,0 +1,11 @@
+{
+  "name": "shluz",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Шлюз: партийная игра о сборе припасов и споре за место в убежище",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=18" }
+}
