@@ -11,6 +11,7 @@ const PUBLIC = path.join(__dirname, 'public');
 const SCENARIO = path.join(__dirname, 'content', 'scenario.json');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
 const ROOM_TTL_MS = 6 * 3600 * 1000;
+const MAX_ROOMS = 200; // защита от того, что кто-то завалит сервер пустыми комнатами
 
 const rooms = new Map(); // code -> { game, tokens: Map(token -> pid), streams: Map(pid -> Set(res)), timer, touched }
 
@@ -99,6 +100,7 @@ async function api(req, res, url) {
   if (req.method !== 'POST') fail('Not found', 404);
   const b = await readBody(req);
   if (url.pathname === '/api/create') {
+    if (rooms.size >= MAX_ROOMS) fail('Сервер переполнен, попробуйте позже', 503);
     const code = newCode();
     const game = new Game(loadScenario());
     const p = game.addPlayer(b.name, { host: true });

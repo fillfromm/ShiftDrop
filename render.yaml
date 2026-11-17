@@ -1,0 +1,11 @@
+# Хостинг игры «Шлюз» на Render (бесплатный тариф).
+services:
+  - type: web
+    name: shluz
+    runtime: node
+    plan: free
+    branch: claude/kind-johnson-7w7kqn
+    rootDir: shluz
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /
